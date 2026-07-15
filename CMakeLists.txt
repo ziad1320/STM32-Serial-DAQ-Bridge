@@ -21,7 +21,9 @@ set(EXECUTABLE                           ${CMAKE_PROJECT_NAME})
 # Executable files
 add_executable(${EXECUTABLE} ${SOURCE_LIST} ${STARTUP_BASE_DIR}/${SERIES_FOLDER}/${MAPPED_DEVICE}.s
         Rcc/Rcc.h
-        Rcc/Rcc.h)
+        Rcc/Rcc.h
+        DS18B20/ds18b20.h
+        DS18B20/ds18b20.c)
 # Include
 target_include_directories(${EXECUTABLE} PUBLIC ${INCLUDE_LIST})
 # Project symbols
