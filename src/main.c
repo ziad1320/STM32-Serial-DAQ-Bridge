@@ -71,6 +71,30 @@ static void float_to_str(char *buffer, float val, int precision) {
 }
 
 /**
+ * @brief Formats a sensor reading for JSON, mapping the DS18B20 error sentinel
+ *        to JSON `null` instead of the literal number -999.0.
+ *
+ * Without this, a failed read (bad CRC, no presence pulse after retries) would
+ * serialize as a normal-looking numeric value, and anything parsing the JSON
+ * on the other end of UART (e.g. the ESP-01S / whatever consumes this payload)
+ * has no way to tell a real -999.0C reading apart from a sensor fault.
+ *
+ * @param buffer Output char array to store the string.
+ * @param temp The temperature reading returned by DS18B20_ReadTemperature.
+ */
+static void format_sensor_value(char *buffer, float temp) {
+    if (temp <= (DS18B20_ERROR_TEMP + 1.0f)) {
+        buffer[0] = 'n';
+        buffer[1] = 'u';
+        buffer[2] = 'l';
+        buffer[3] = 'l';
+        buffer[4] = '\0';
+    } else {
+        float_to_str(buffer, temp, 1);
+    }
+}
+
+/**
  * @brief Custom JSON string builder.
  *
  * Constructs the JSON payload `{"sensor1": <val1>, "sensor2": <val2>}\r\n` without using
@@ -132,9 +156,9 @@ int main(void) {
         float temp1 = DS18B20_ReadTemperature(GPIO_A, 0);
         float temp2 = DS18B20_ReadTemperature(GPIO_A, 1);
 
-        /* b. Format float values into clean decimal-point strings */
-        float_to_str(temp1_buffer, temp1, 1);
-        float_to_str(temp2_buffer, temp2, 1);
+        /* b. Format float values into clean decimal-point strings (or "null" on sensor error) */
+        format_sensor_value(temp1_buffer, temp1);
+        format_sensor_value(temp2_buffer, temp2);
 
         /* c. Format temperature readings into a single JSON string */
         build_json_payload(json_payload, temp1_buffer, temp2_buffer);
