@@ -1,7 +1,7 @@
 #include "ds18b20.h"
 #include "../Timer/Timer.h"
 
-#define DS_TIMER TIMER_2 
+#define DS_TIMER TIMER_2
 
 #define DS_RESET_LOW_US        480u  /* master reset pulse,            min 480us           */
 #define DS_RESET_SAMPLE_US     70u   /* wait before sampling presence, see note below       */
