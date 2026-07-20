@@ -1,8 +1,8 @@
 #include "Timer.h"
 #include "Timer_Private.h"
-#include "../lib/std_types.h"
-#include "../lib/Bit_Operations.h"
-#include "../Nvic/Nvic.h"
+#include "std_types.h"
+#include "Bit_Operations.h"
+#include "Nvic.h"
 
 // address mapping
 static uint32 timer_base_addresses[NUM_OF_TIMERS] = {TIM2_BASE_ADDR, TIM3_BASE_ADDR, TIM4_BASE_ADDR, TIM5_BASE_ADDR};
@@ -12,9 +12,6 @@ static uint32 timer_base_addresses[NUM_OF_TIMERS] = {TIM2_BASE_ADDR, TIM3_BASE_A
 static uint8 Timer_NvicIrq[NUM_OF_TIMERS] = {28, 29, 30, 50};
 
 static Timer_Callback Timer_Callbacks[NUM_OF_TIMERS] = {0};
-
-/* Safety timeout limit for polling loops */
-#define TIMER_TIMEOUT_LIMIT 1000000UL
 
 void Timer_Init(uint8 TimerId, uint16 Prescaler, uint16 AutoReload) {
     TimerType* timer = TIMER_GET_PERIPHERAL(TimerId);
@@ -37,20 +34,34 @@ void Timer_Stop(uint8 TimerId) {
 }
 
 /**
- *  Synchronous delay — blocks until timer overflows
- *  16 MHz HSI  ÷  (PSC+1 = 16000) = 1 kHz  →  1 tick = 1 ms
+ *  Synchronous delay — blocks until timer overflows.
+ *  TIMER_CLOCK_HZ / (PSC+1 = TIMER_CLOCK_HZ/1000) = 1 kHz -> 1 tick = 1 ms
+ *  (PSC/ARR math driven by the single TIMER_CLOCK_HZ constant in
+ *  Timer_Private.h - verify that constant matches your real board's
+ *  APB1 timer clock, see the comment there.)
+ *
+ *  NOTE: this previously had a software "safety timeout" that aborted
+ *  the wait after a fixed 1,000,000 loop iterations. That's removed:
+ *  1,000,000 iterations of a tight polling loop finishes in well under
+ *  a typical DS18B20 750ms conversion wait at any realistic STM32F4
+ *  clock speed, so it was silently cutting every multi-hundred-ms delay
+ *  short with no error indication - almost certainly the cause of the
+ *  real-hardware failures. A hardware-timed blocking wait like this
+ *  should be trusted to actually reach UIF; if you want a genuine
+ *  hang-guard later (e.g. against a forgotten Rcc_Enable), it needs to
+ *  be based on real elapsed time (e.g. a DWT cycle-counter check), not
+ *  a guessed iteration count.
  */
 void Timer_DelayMs(uint8 TimerId, uint32 DelayMs) {
-    if (DelayMs == 0) return;
-    
+    if (DelayMs == 0U) {
+        return;
+    }
+
     TimerType* timer = TIMER_GET_PERIPHERAL(TimerId);
     timer->CR1 = 0; // Stop & reset
-    
-    /* Hardware Clock: 16MHz HSI. 
-     * To get 1ms resolution: 16,000,000 / 16,000 = 1,000 Hz.
-     * PSC = 16000 - 1 = 15999. */
-    timer->PSC = 15999U; 
-    timer->ARR = (uint16) (DelayMs - 1); 
+
+    timer->PSC = (uint16) ((TIMER_CLOCK_HZ / 1000UL) - 1UL);
+    timer->ARR = (uint16) (DelayMs - 1U); // ARR+1 ticks occur per period
     timer->CNT = 0;
 
     SET_BIT(timer->EGR, EGR_UG); // Load shadow registers
@@ -59,9 +70,8 @@ void Timer_DelayMs(uint8 TimerId, uint32 DelayMs) {
     SET_BIT(timer->CR1, CR1_OPM); // One-pulse mode
     SET_BIT(timer->CR1, CR1_CEN); // Start counting
 
-    uint32 timeout = TIMER_TIMEOUT_LIMIT;
-    while (!READ_BIT(timer->SR, SR_UIF) && (timeout > 0)) {
-        timeout--;
+    while (!READ_BIT(timer->SR, SR_UIF)) {
+        // Poll – CPU is blocked here
     }
 
     timer->SR = 0; // Clear UIF
@@ -71,17 +81,19 @@ void Timer_DelayMs(uint8 TimerId, uint32 DelayMs) {
 
 // Async means it doesn't freeze the program until delay is finished
 void Timer_DelayMsAsync(uint8 TimerId, uint32 DelayMs, Timer_Callback Callback) {
-    if (DelayMs == 0) return;
+    if (DelayMs == 0U) {
+        return;
+    }
 
     TimerType *timer = TIMER_GET_PERIPHERAL(TimerId);
     uint8 index = TimerId - TIMER_2;
-    uint8 irqNum = Timer_NvicIrq[index]; 
+    uint8 irqNum = Timer_NvicIrq[index];
 
-    Timer_Callbacks[index] = Callback; 
+    Timer_Callbacks[index] = Callback;
 
     timer->CR1 = 0; // Stop & reset
-    timer->PSC = 15999U;
-    timer->ARR = (uint16) (DelayMs - 1);
+    timer->PSC = (uint16) ((TIMER_CLOCK_HZ / 1000UL) - 1UL);
+    timer->ARR = (uint16) (DelayMs - 1U);
     timer->CNT = 0;
 
     SET_BIT(timer->EGR, EGR_UG); // Load shadow registers
@@ -96,30 +108,34 @@ void Timer_DelayMsAsync(uint8 TimerId, uint32 DelayMs, Timer_Callback Callback) 
 }
 
 /**
- *  Synchronous delay — blocks until timer overflows
- *  16 MHz HSI  ÷  (PSC+1 = 16) = 1 MHz  →  1 tick = 1 us
+ *  Synchronous delay — blocks until timer overflows.
+ *  TIMER_CLOCK_HZ / (PSC+1 = TIMER_CLOCK_HZ/1000000) = 1 MHz -> 1 tick = 1 us
  */
 void Timer_DelayUs(uint8 TimerId, uint32 DelayUs) {
-    if (DelayUs == 0) return;
+    if (DelayUs == 0U) {
+        return;
+    }
 
     TimerType* timer = TIMER_GET_PERIPHERAL(TimerId);
     timer->CR1 = 0; // Stop & reset
 
-    /* Strict 16MHz to 1MHz conversion. PSC = 16 - 1 = 15. */
-    timer->PSC = 15U;
-
-    timer->ARR = (uint16) (DelayUs - 1);
+    timer->PSC = (uint16) ((TIMER_CLOCK_HZ / 1000000UL) - 1UL);
+    timer->ARR = (uint16) (DelayUs - 1U);
     timer->CNT = 0;
 
-    SET_BIT(timer->EGR, EGR_UG);
+    /* Direct writes instead of SET_BIT (which is read-modify-write): CR1
+     * was just zeroed above and EGR reads back as 0, so there's nothing
+     * to preserve - this removes 3 unnecessary register reads from the
+     * hot path. Matters here specifically because this setup overhead is
+     * roughly constant regardless of the requested delay, and DS18B20's
+     * read-slot timing only has a few microseconds of margin to spare. */
+    timer->EGR = (1UL << EGR_UG);
     timer->SR = 0;
 
-    SET_BIT(timer->CR1, CR1_OPM);
-    SET_BIT(timer->CR1, CR1_CEN);
+    timer->CR1 = (1UL << CR1_OPM) | (1UL << CR1_CEN);
 
-    uint32 timeout = TIMER_TIMEOUT_LIMIT;
-    while (!READ_BIT(timer->SR, SR_UIF) && (timeout > 0)) {
-        timeout--;
+    while (!READ_BIT(timer->SR, SR_UIF)) {
+        // Poll – CPU is blocked here waiting for exact microseconds
     }
 
     timer->SR = 0;

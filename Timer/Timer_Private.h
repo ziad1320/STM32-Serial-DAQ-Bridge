@@ -1,7 +1,7 @@
 #ifndef TIMER_PRIVATE_H
 #define TIMER_PRIVATE_H
 
-#include "../lib/std_types.h"
+#include "std_types.h"
 /* TIMx register map (General-purpose: TIM2–TIM5)*/
 typedef struct {
     volatile uint32 CR1;         /* 0x00 - Control register 1              */
@@ -31,6 +31,25 @@ typedef struct {
 #define TIM3_BASE_ADDR   0x40000400UL
 #define TIM4_BASE_ADDR   0x40000800UL
 #define TIM5_BASE_ADDR   0x40000C00UL
+
+/* Actual clock feeding TIM2-TIM5 (APB1 timer clock), in Hz. Timer.c derives
+ * every PSC value from this ONE constant instead of separate hardcoded
+ * numbers for the ms/us paths, so if Rcc_Init() ever changes the clock
+ * tree (e.g. a PLL config), this is the single place to update.
+ *
+ * Do not trust this blindly on real hardware - verify it: toggle a GPIO
+ * pin around a Timer_DelayMs(TIMER_x, 1000) call and measure the actual
+ * pulse width on a scope/logic analyzer. Simulation and real silicon are
+ * not guaranteed to agree on the clock tree.
+ *
+ * Note: the ms-tick divider below assumes a single-stage prescaler
+ * (TIMER_CLOCK_HZ / 1000 - 1) fits in the 16-bit PSC register. That's
+ * true up to ~65.536 MHz; if you ever clock TIM2-5 faster than that
+ * (e.g. an 84MHz PLL config with APB1 timer clock doubling), a single
+ * PSC stage can no longer produce exact 1ms ticks and the prescale
+ * strategy needs to change (e.g. prescale to 1MHz first, then use a
+ * larger tick count instead of a 1ms hardware tick). */
+#define TIMER_CLOCK_HZ   16000000UL
 
 /*CR1 bit positions*/
 #define CR1_CEN          0U    /* Counter enable              */

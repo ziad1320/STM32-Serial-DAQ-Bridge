@@ -1,7 +1,7 @@
 #ifndef TIMER_H
 #define TIMER_H
 
-#include "../lib/std_types.h"
+#include "std_types.h"
 
 #define NUM_OF_TIMERS 4U
 #define TIMER_2 2U
