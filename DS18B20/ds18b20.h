@@ -1,8 +1,8 @@
 #ifndef DS18B20_H
 #define DS18B20_H
 
-#include "../lib/std_types.h"
-#include "../GPIO/GPIO.h"
+#include "std_types.h"
+#include "GPIO.h"
 
 /* Sentinel returned when a conversion still fails after DS18B20_MAX_RETRIES
  * attempts (no presence pulse, or a CRC-failed scratchpad every time). */
